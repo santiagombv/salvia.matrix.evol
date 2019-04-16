@@ -1,0 +1,1088 @@
+---
+title: "Supplementary Material: Evolutionary transition between bee- and hummingbird-pollination in *Salvia*: comparing means, variances and covariances of corolla traits"
+author: "Santiago Benitez-Vieyra, César A. Domínguez, Jessica Pérez-Alquicira, Federico D. Sazatornil, Karina Boege, Rubén Pérez-Ishiwara & Juan Fornoni"
+
+output: 
+  pdf_document:
+    fig_width: 7.5
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, fig.align = 'center', 
+                      fig.pos = "p",out.extra = ' ', message=FALSE, fig.show="hold")
+options(knitr.kable.NA = '')
+```
+
+This is a pdf version of an R Markdown, the original routines can be downloaded from https://github.com/santiagombv/salvia.matrix.evol, along with the raw data from 18 *Salvia* species.   
+
+## 1. Data imput.
+```{r}
+# read data
+sal <- read.csv("flower_measures.csv", header = TRUE)
+sal$plant <- as.factor(sal$plant)
+sal$flower <- as.factor(sal$flower)
+
+# log transformation
+sal[, paste("log", names(sal[, 5:10]), 
+            sep = ".")] <- apply(sal[, 5:10], 2, FUN = log)
+
+# list of data frames
+sal.prev <- split(sal, paste(sal$sp, sal$pop, sep = "_"))
+
+# Individual means
+# obtain a single data frame (sal.base)
+# and a list of data frames (sal.list)
+resum<-function(x){
+  if(is.factor(x)==TRUE) y <- unique(droplevels(x)) else y <- mean(x, na.rm=T)
+  return(y)
+}
+
+sal.list <- list(21)
+for(i in 1:21) sal.list[[i]] <- aggregate(sal.prev[[i]][, -4], 
+                                           by = list(sal.prev[[i]][, "plant"]), 
+                                           FUN=resum)[, -c(1)]
+sal.base <- do.call("rbind", sal.list) 
+rm(sal, sal.prev)
+```
+
+\pagebreak
+
+## 2. Mean trait space (morphospace).
+### 2.1. Space building.
+   
+```{r}
+library(treebase)
+library(phytools)
+library(knitr)
+library(vegan)
+
+# obtain species means
+pop.means <- aggregate(sal.base[, -3], by = list(sal.base$pop), FUN = resum)[, -1]
+sp.means <- aggregate(pop.means[, -2], by = list(pop.means$sp), FUN = resum)[, -1]
+
+# obtain phylogenetic tree from Treebase and pruning
+T1 <- search_treebase("S15364", by="id.study")[[1]]
+
+salvia.species <- c("Salvia_atrocyanea", "Salvia_calolophos", "Salvia_cinnabarina",
+                    "Salvia_cuspidata", "Salvia_elegans", "Salvia_fulgens",
+                    "Salvia_guaranitica", "Salvia_iodantha", "Salvia_lavanduloides",
+                    "Salvia_longispicata", "Salvia_mexicana", "Salvia_misella",
+                    "Salvia_pallida", "Salvia_personata", "Salvia_polystachya",
+                    "Salvia_purpurea", "Salvia_stachydifolia", "Salvia_thyrsiflora")
+Tsub1 <- drop.tip(T1, setdiff(T1$tip.label, salvia.species))
+Tsub1$tip.label <- c("calo", "cusp", "fulg", "long", "lava", "guar", 
+                     "pall", "atro", "mexi", "poly", "ioda", "purp", 
+                     "stac", "pers", "thyr", "cinn", "eleg", "mise")
+
+# phylogenetic principal components
+rownames(sp.means) <- sp.means$sp
+phyPC <- phyl.pca(tree=Tsub1, Y = sp.means[, 8:13])
+result_pc <- as.data.frame(rbind(diag(phyPC$Eval), 
+                                 diag(phyPC$Eval)/sum(diag(phyPC$Eval))*100,
+                                 cumsum(diag(phyPC$Eval)/sum(diag(phyPC$Eval))*100)))
+row.names(result_pc) <- c("eigenvalues", "eigenvalues %", "cummulative %")
+kable(result_pc, digits = 3)
+
+# vector of pollination syndromes (m = bee-pollinated; o = bird-pollinated)
+synd <- c("o", "m", "o", "m", "o", "o", "o", "o", "m", 
+          "m", "o", "m", "m", "m", "m", "o", "m", "m")
+
+# mean trait space (morphospace). Plot
+colores <- synd
+colores[colores == "o"] <- "red"; colores[colores == "m"] <- "blue"
+plot(phyPC$S[, 1]*(-1), phyPC$S[, 2]*(-1), pch = 19, col = colores,
+     xlab = "principal component 1", ylab = "principal component 2")
+ordihull(phyPC$S[, c(1,2)]*(-1), groups = synd, draw = "polygon", 
+         alpha = 50, col = c("blue", "red"))
+
+```
+
+
+
+**Figure 1.** Mean trait space (morphospace) of *Salvia* corolla traits, showing the first two phylogenetic principal components. Red dots indicate hummingbird-pollinated *Salvia* species, while blue dots correspond to bee-pollinated species. The same colors indicate the convex hulls.   
+
+\pagebreak
+
+### 2.2. Diferences in corolla morphology between pollination syndromes.
+
+```{r}
+library(nlme)
+library(vegan)
+library(geiger)
+
+# Phylogenetic generalized least squares (PGLS)
+dataphyPC <- cbind.data.frame(phyPC$S, synd) 
+s1 <- gls(PC1 ~ synd, data = dataphyPC, correlation = corPagel(1, Tsub1)) #PC1
+kable(summary(s1)$tTable, digits = 3) # only coefficients
+
+s2 <- gls(PC2 ~ synd, data = dataphyPC, correlation = corPagel(1, Tsub1)) #PC2
+kable(summary(s2)$tTable, digits = 3) # only coefficients
+
+# PERMANOVA
+eu.distances <- dist(phyPC$S)
+permanova.morpho <- adonis2(eu.distances ~ synd, permutations = 9999)
+kable(permanova.morpho, digits = 3)
+
+# test for diferences in dispersion between groups
+disp.morpho <- betadisper(eu.distances, group=synd)
+res.morpho <- permutest(disp.morpho, permutations = 9999)
+kable(res.morpho$tab, digits = 3)
+
+# Phylogenetic MANOVA (geiger)
+sixtraits <- sp.means[, 8:13]
+synd2 <- as.factor(synd)
+names(synd2) <-rownames(sp.means)
+fit1 <- aov.phylo(sixtraits ~ synd2, phy = Tsub1, nsim = 1000)
+
+```
+
+\pagebreak
+
+## 3. Covariance space.
+### 3.1. Space building.   
+
+```{r}
+library(evolqg)
+library(bios2mds)
+library(geometry)
+library(plot3D)
+library(knitr)
+
+# list of P matrices per population
+pmat <- list(21) 
+for(i in 1:21) pmat[[i]] <- cov(sal.list[[i]][, 10:15], use= "pairwise.complete.obs")
+
+# list of P matrices per species
+N <- numeric(21); for(i in 1:21) N[i] <- nrow(sal.list[[i]])
+salvia_p <- list(atro = pmat[[1]], calo = pmat[[2]], cinn = pmat[[3]],
+                 cusp = (pmat[[4]]*N[4]+pmat[[5]]*N[5])/(N[4]+N[5]), 
+                 eleg = (pmat[[6]]*N[6]+pmat[[7]]*N[7])/(N[6]+N[7]), 
+                 fulg = (pmat[[8]]*N[8]+pmat[[9]]*N[9])/(N[8]+N[9]), 
+                 guar = pmat[[10]], ioda = pmat[[11]], lava = pmat[[12]],
+                 long = pmat[[13]], mexi = pmat[[14]], mise = pmat[[15]],
+                 pall = pmat[[16]], pers = pmat[[17]], poly = pmat[[18]],
+                 purp = pmat[[19]], stac = pmat[[20]], thyr = pmat[[21]])
+rm(pmat)
+
+# obtain Riemannian distances
+rdist <- as.dist(MatrixDistance(cov.x = salvia_p, distance = "RiemannDist"))
+
+# perform Principal Coordinate Analysis (PCoA)
+biommds <- mmds(active = as.matrix(rdist), pc = 17)
+
+# eigenvalues and relative eigenvalues from PCoA
+result_pcoa <- rbind(biommds$eigen[1:7], 
+                     biommds$eigen.perc[1:7],
+                    cumsum(biommds$eigen.perc[1:7]))
+colnames(result_pcoa) <- paste("PCo", c(1:7), sep = "")
+row.names(result_pcoa) <- c("eigenvalues", "eigenvalues %", "cummulative %")
+kable(result_pcoa, digits = 3)
+
+# vector of pollination syndromes (m = bee-pollinated; o = bird-pollinated)
+synd <- c("o", "m", "o", "m", "o", "o", "o", "o", "m", 
+          "m", "o", "m", "m", "m", "m", "o", "m", "m")
+
+# convex hulls 
+ps1 <- as.matrix(biommds$coord[synd == "o", c(1,2,3)])
+ts1 <- t(convhulln(ps1)) 
+ps2 <- as.matrix(biommds$coord[synd == "m", c(1,2,3)])
+ts2 <- t(convhulln(ps2)) 
+
+# Covariance space. 3D plot
+colores <- character(18)
+colores[synd=="o"] <- "red4"; colores[synd=="m"] <- "blue4"
+scatter3D(biommds$coord[,1], biommds$coord[,2], biommds$coord[,3],
+          colvar = NULL, theta = 135, phi = 30, bty="g", cex.lab = 0.8,
+          col = colores, ticktype = "detailed", pch = 16, r=50,
+          xlab = "principal coordinate 1",
+          ylab = "principal coordinate 2",
+          zlab = "principal coordinate 3")
+for(i in 1:ncol(ts1)){
+  polygon3D(ps1[ts1[,i],1],ps1[ts1[,i],2],ps1[ts1[,i],3],col=rgb(1,0,0,0.05),
+            facets=T, border = "grey", add=T) 
+}
+for(i in 1:ncol(ts2)){
+  polygon3D(ps2[ts2[,i],1],ps2[ts2[,i],2],ps2[ts2[,i],3],col=rgb(0,0,1,0.05),
+            facets=T, border = "grey", add=T) 
+}
+
+```
+
+
+
+**Figure 2.** **P**-matrix space of *Salvia* corolla traits, showing the first three principal coordinates. Red dots indicate hummingbird-pollinated *Salvia* species, while blue dots correspond to bee-pollinated species. The same colors indicate the convex hulls.   
+
+
+\pagebreak
+
+
+### 3.2. Correlation between covariance space axes and original variances and covariances.   
+
+```{r}
+library(ggcorrplot)
+
+# data frame of covariances
+Pdat <- matrix(rep(0,378), 18, 21)
+for(i in 1:18) Pdat[i, ] <- salvia_p[[i]][lower.tri(salvia_p[[i]], diag = T)]
+colnames(Pdat) <- c("lll.lll", "lll.llw", "lll.ull", "lll.ulw", "lll.ctl", "lll.ctw",
+                    "llw.llw", "llw.ull", "llw.ulw", "llw.ctl", "llw.ctw", "ull.ull", 
+                    "ull.ulw", "ull.ctl", "ull.ctw", "ulw.ulw", "ulw.ctl", "ulw.ctw",
+                    "ctl.ctl", "ctl.ctw", "ctw.ctw")
+Pdat <- as.data.frame(Pdat)
+
+# merge data frames
+mix.dat <- data.frame(biommds$coord[, c(1:7)], Pdat)
+
+# correlations
+kable(t(cor(mix.dat)[1:7, names(Pdat)]), digits = 3)
+
+# plot
+o <- c(20,18,17,15,14,13,11,10,9,8,6,5,4,3,2,21,19,16,12,7,1)
+ggcorrplot(cor(mix.dat)[1:3, names(Pdat)[o]], lab = FALSE, lab_size = 2,
+           colors = c("#5e3c99", "white", "#e66101"))
+
+```
+
+
+
+**Figure 3.** Pearson correlations between the principal coordinates and the variances and covariances of the **P**-matrices.   
+
+\pagebreak
+
+### 3.3. Divergence in the covariance space between pollination syndromes.  
+
+```{r}
+# PGLS
+dataphyPCoA <- cbind.data.frame(biommds$coord, synd)
+str.cor <- corPagel(1, Tsub1)
+
+t1 <- gls(PC1 ~ synd, data = dataphyPCoA, correlation = str.cor, 
+          control= list(opt="optim")) #PCoA1
+kable(summary(t1)$tTable, digits = 3) # only coefficients
+
+t2 <- gls(PC2 ~ synd, data = dataphyPCoA, correlation = str.cor,
+          control= list(opt="optim")) #PCoA2
+kable(summary(t2)$tTable, digits = 3) 
+
+t3 <- gls(PC3 ~ synd, data = dataphyPCoA, correlation = str.cor,
+          control= list(opt="optim")) #PCoA3
+kable(summary(t3)$tTable, digits = 3) 
+
+t4 <- gls(PC4 ~ synd, data = dataphyPCoA, correlation = str.cor,
+          control= list(opt="optim"))#PCoA4
+kable(summary(t4)$tTable, digits = 3) 
+
+t5 <- gls(PC5 ~ synd, data = dataphyPCoA, correlation = str.cor,
+          control= list(opt="optim"))#PCoA5
+kable(summary(t5)$tTable, digits = 3) 
+
+t6 <- gls(PC6 ~ synd, data = dataphyPCoA, correlation = str.cor,
+          control= list(opt="optim"))#PCoA6
+kable(summary(t6)$tTable, digits = 3) 
+
+t7 <- gls(PC7 ~ synd, data = dataphyPCoA, correlation = str.cor,
+          control= list(opt="optim"))#PCoA7
+kable(summary(t7)$tTable, digits = 3) 
+
+# PERMANOVA
+permanova.cov <- adonis2(rdist ~ synd, permutations = 9999)
+kable(permanova.cov, digits = 3)
+
+# test for diferences in dispersion between groups
+disp.cov <- betadisper(rdist, group=synd)
+res.cov <- permutest(disp.cov, permutations = 9999)
+kable(res.cov$tab, digits = 3)
+
+# Phylogenetic MANOVA (geiger)
+sevenaxes <- dataphyPCoA[, 1:7]
+fit2 <- aov.phylo(sevenaxes ~ synd2, phy = Tsub1, nsim = 1000)
+
+```
+   
+   
+   
+\pagebreak   
+
+## 4. Multivariate Phylogenetic Signal.   
+
+```{r}
+library(phylocurve)
+
+# multivariate phylogenetic signal in six corolla traits
+names(sp.means)[1] <- "species"
+null1 <- evo.model(tree = Tsub1, Y = sp.means[, c(1, 8:13)], method = "Pairwise ML")
+K.mult(null1, plot = FALSE)
+
+# multivariate phylogenetic signal in the first 
+# seven axes of the coavariance space
+pcoa_phy <- biommds$coord[, 1:7]
+pcoa_phy$species <- rownames(biommds$coord)
+null2 <- evo.model(tree = Tsub1, Y = pcoa_phy, method = "Pairwise ML")
+K.mult(null2, plot = FALSE)
+
+```
+
+
+
+\pagebreak
+
+
+## 5. Comparison of morphological and variance-covariance spaces.   
+
+```{r}
+
+# Distance matrices
+dist.coph <- cophenetic.phylo(Tsub1)
+dist.cova <- as.matrix(rdist)
+dist.morp <- as.matrix(dist(phyPC$S[, 1:6], upper = T, diag = T))
+
+# partial Mantel function
+partial.cor <- function(xdis, ydis, zdis){
+  xdis <- as.dist(xdis)
+  ydis <- as.vector(as.dist(ydis))
+  zdis <- as.vector(as.dist(zdis))
+  rxy <- cor(as.vector(xdis), ydis)
+  rxz <- cor(as.vector(xdis), zdis)
+  ryz <- cor(ydis, zdis)
+  part.cor <- (rxy - rxz * ryz)/sqrt(1 - rxz * rxz)/sqrt(1 - ryz * ryz)
+  return(part.cor)
+}
+
+# phylogenetic permutations
+phyloProb<-function(phy, k=2) {
+  pd<-cophenetic.phylo(phy)
+  pdr<-pd/max(pd)
+  s<-k-pdr
+  p<-s/rowSums(s)
+  p
+}
+
+# Permutes species according to phylogentic tree
+# returns tip names in permuted order
+# (from Harmon and Glor, 2010)
+phyloPermute<-function(phy, k=1) {
+  p<-phyloProb(phy, k)
+  tt<-rownames(p)
+  nsp<-length(tt)
+  order<-sample(1:nsp, replace=F)
+  ttnew<-character(nsp)
+  cpm<-p
+  for(j in order[-nsp]) {
+    cpm<-cpm/rowSums(cpm)
+    rr<-which(rownames(cpm)==tt[j])
+    pp<-cpm[rr,]
+    s2<-sample(names(pp), size=1, replace=T, prob=pp)
+    slot<-which(tt==s2)
+    rc<-which(colnames(cpm)==s2)
+    ttnew[slot]<-tt[j]
+    cpm<-cpm[-rr,-rc]
+  }
+  ttnew[which(ttnew=="")]<-tt[order[nsp]]
+  ttnew
+}	
+
+# observed value
+obs.value <- partial.cor(xdis = dist.cova, ydis = dist.morp, zdis = dist.coph)
+
+# pseudo-values
+partial.mantel <- replicate(1000, partial.cor(xdis = dist.cova[phyloPermute(phy=Tsub1),
+                                                              phyloPermute(phy=Tsub1)],
+                                               ydis = dist.morp, zdis = dist.coph))
+# significance
+p.value <- length(partial.mantel[partial.mantel>obs.value])/1000
+kable(data.frame(r = obs.value, P = p.value), digits = 3)
+
+```
+
+
+
+\pagebreak
+
+## 6. Numerical simulations   
+
+### 6.1. Projecting proportional matrices into the original P-matrix space.
+The function *prop_matrix* performs the eigendecomposition of a covariance matrix, multiplies the eigenvalues by a given value (proportionality constant) and obtains a new covariance matrix with the new eigenvalues and the same eigenvectors than the original one.   
+
+```{r}
+
+# prop_matrix function arguments:
+# mat   A covariance matrix
+# pc   Proportionality constant
+# Output: a new matrix
+
+prop_matrix <- function(mat, pc){
+  ei <- eigen(mat)
+  newmat <- ei$vectors%*%diag(ei$values*pc)%*%solve(ei$vectors)
+  return(newmat)
+}
+
+# Setting a vector of proportionality constants
+prop.values <- c(rep(0.5, 18), rep(2, 18))
+
+# Creating new matrices from the original P-matrices.
+matrix.index <- rep(names(salvia_p), 2)
+Z <- list(18*2)
+for(i in 1:36){
+  Z[[i]] <- prop_matrix(salvia_p[[matrix.index[i]]], pc = prop.values[i])
+  names(Z)[i] <- paste(matrix.index[i], prop.values[i], sep = "_")
+}
+
+# Merge original and new matrices
+Pmat.add1 <- c(salvia_p, Z) 
+
+# Obtain Riemannian distances
+distances1 <- as.dist(MatrixDistance(cov.x = Pmat.add1, distance = "RiemannDist"))
+
+# Projecting the new matrices into the original P-matrix space 
+SUP1 <- as.matrix(distances1)[19:54,-c(19:54)]
+pru1 <- mmds.project(mmds=biommds, sup = SUP1, pc = 17)
+
+# 3D plot
+scatter3D(biommds$coord[,1], biommds$coord[,2], biommds$coord[,3],
+          colvar = NULL, theta = 45, phi = 30, col = colores, bty="g",
+          ticktype = "detailed", pch = 16, r=50, cex = 1.2, cex.lab = 0.8,
+          xlab = "principal coordinate 1",
+          ylab = "principal coordinate 2",
+          zlab = "principal coordinate 3",
+          xlim = c(-8, 8), ylim = c(-8, 8), zlim = c(-8, 8))
+arrplot <- function(x){
+  arrows3D(pru1$coord[x,1], pru1$coord[x,2], pru1$coord[x,3], 
+           pru1$coord[x+18,1], pru1$coord[x+18,2], pru1$coord[x+18,3], 
+           add= T, type = "triangle", col = "black", lwd = 1.2) 
+}
+for(i in 1:18) arrplot(i)
+
+```
+
+
+
+**Figure 4.** Projection of simulated matrices into the **P**-matrix space. The start of the arrow corresponds to a matrix having half the total variance as the original matrix. The end of the arrow corresponds to a matrix having double the total variance as the original matrix.   
+
+\pagebreak   
+
+
+### 6.2. Projecting matrices with diferent integration into the original P-matrix space.  
+
+The function *bs_matrix* performs the eigendecomposition of a covariance matrix. Then, it redistributes the variance among eigenvalues, assigning a given amount to the leading (first) eigenvalue and distributing the remaining variance among the rest. The total amount of variance  is not changed. Finally, it obtains a new covariance matrix with the new eigenvalues and the same eigenvectors than the original one.   
+   
+Because only the first eigenvalue is trasformed, the function simmulate a "broken stick" eigenvalue distribution. Thus, integration increases with the proportion of the variance explained by the leading eigenvalue. Maximum integration (measured as relative eigenvalue variance following Wagner 1984 and  Cheverud *et al.* 1989) is attained when the first eigenvalue accounts for all variance. Given that **P**-matrices include six traits, minimum integration is attained when the first eigenvalue explains 16.67% of the total variance. 
+   
+Integration is often estimated from correlation matrices. Thus, our results are not comparable with most studies, but we are confident about the rationale of using the amount of variance explained by the leading eigenvalue as an estimate of phenotypic integration.   
+    
+     
+```{r}
+
+# Proportion of the variance explained by the leading (first) eigenvalue
+ei <- numeric(18)
+for(i in 1:18) {
+  Z <- eigen(salvia_p[[i]])$values
+  ei[i] <- Z[1]/sum(Z)
+}
+
+# bs_matrix function arguments:
+# mat   A covariance matrix
+# prop.var  Proportion of the total variance explained by the leading (first) 
+# eigenvalue
+# Output: a new matrix
+
+bs_matrix <- function(mat, prop.var){ 
+  ei <- eigen(mat)
+  SL <- sum(ei$values)
+  dim <- nrow(mat)
+  L1 <- SL*prop.var
+  Lk <- ei$values[-1]/sum(ei$values[-1])*(SL-L1)
+  d <- c(L1, Lk)
+  newmat <- ei$vectors%*%diag(d)%*%solve(ei$vectors)
+  return(newmat)
+}
+
+# vector of proportions of the variance explained by the first eigenvalue
+leading.ei <- c(rep(0.25, 18), rep(0.85, 18))
+
+# Creating new matrices from the original P-matrices.
+matrix.index <- rep(names(salvia_p), 2)
+Y <- list(18*2)
+for(i in 1:36){
+  Y[[i]] <- bs_matrix(salvia_p[[matrix.index[i]]], prop.var = leading.ei[i])
+  names(Y)[i] <- paste(matrix.index[i], leading.ei[i], sep = "_")
+}
+
+# Merge into a list the original and new matrices
+Pmat.add2 <- c(salvia_p, Y) 
+
+# Obtain Riemannian distances
+distances2 <- as.dist(MatrixDistance(cov.x = Pmat.add2, distance = "RiemannDist"))
+
+# Projecting the new matrices into the original P-matrix space 
+SUP2 <- as.matrix(distances2)[19:54,-c(19:54)]
+pru2 <- mmds.project(mmds=biommds, sup = SUP2, pc = 17)
+
+# 3D plot
+scatter3D(biommds$coord[,1], biommds$coord[,2], biommds$coord[,3],
+          colvar = NULL, theta = 45, phi = 30, col = colores, bty="g",
+          ticktype = "detailed", pch = 16, r=50, cex = 1.2, cex.lab = 0.8,
+          xlab = "principal coordinate 1",
+          ylab = "principal coordinate 2",
+          zlab = "principal coordinate 3",
+          xlim = c(-8, 8), ylim = c(-8, 8), zlim = c(-8, 8))
+segplot <- function(x){
+  segments3D(pru2$coord[x,1], pru2$coord[x,2], pru2$coord[x,3], 
+             biommds$coord[x,1], biommds$coord[x,2], biommds$coord[x,3],
+             add= T, lwd=1.2) 
+}
+arrplot <- function(x){
+  arrows3D(biommds$coord[x,1], biommds$coord[x,2], biommds$coord[x,3],
+           pru2$coord[x+18,1], pru2$coord[x+18,2], pru2$coord[x+18,3], 
+           add= T, lwd= 1.2, col = "black", type = "triangle") 
+}
+
+for(i in 1:18) segplot(i)
+for(i in 1:18) arrplot(i)
+
+
+```
+
+
+
+**Figure 5.** Projection of simulated matrices into the **P**-matrix space. The start of the arrow corresponds to a matrix where the first eigenvector accounts for 25 percent of the total variance. The end of the arrow corresponds to a matrix where the first eigenvector accounts for 85 percent of the total variance.   
+
+\pagebreak
+
+
+### 6.3. Average vector correlations.   
+
+Vector correlations (cosine of the angle between vectors) between the first seven coordinates (PCo) from Principal Coordinate Analysis and the direction in covariance space where the total variance increases or decreases (proportionality changes) and the direction where the magnitude of phenotypic integration increases or decreases (integration changes).   
+
+```{r}
+# angle.calc arguments:
+# coord data frame of vector doordinates
+# from rowname of the vector origin
+# to rowname of the vector end
+# dim number of dimensions
+
+angle.calc <- function(from, to, coord, dim){
+  vec <- as.numeric(coord[to, ] - coord[from, ])
+  axes <- list(dim)
+  for(i in 1:dim){
+    axes[[i]] <- rep(0, dim)
+    axes[[i]][i] <- 1
+  }
+  cosines <- numeric(dim)
+  for(i in 1:dim){
+    cosines[i] <- (t(vec)%*%axes[[i]])/sqrt((t(vec)%*%vec)*(t(axes[[i]])%*%axes[[i]]))
+  }
+  angles <- acos(cosines)
+  res <- c(cosines, angles)
+  names(res) <- c(paste("cos", c(1:dim), sep = "."),
+                  paste("ang", c(1:dim), sep = "."))
+  return(res)
+}
+
+# vector correlation. Proportionality simulations
+ori1 <- paste(names(salvia_p), 0.5, sep = "_")
+fin1 <- paste(names(salvia_p), 2, sep = "_")
+ANG1 <- list(18)
+for(i in 1:18) ANG1[[i]] <- angle.calc(from = ori1[i], to=fin1[i], coord = pru1$coord, dim = 17)
+
+ANG.PROP <- do.call(rbind, ANG1)
+vector.corr1 <- colMeans(ANG.PROP)[1:7]
+names(vector.corr1) <- NULL
+
+# vector correlation. Integration simulations
+ori2 <- paste(names(salvia_p), 0.25, sep = "_")
+fin2 <- paste(names(salvia_p), 0.85, sep = "_")
+ANG2 <- list(18)
+for(i in 1:18) ANG2[[i]] <- angle.calc(from = ori2[i], to=fin2[i], coord = pru2$coord, dim = 17)
+
+ANG.INT <- do.call(rbind, ANG2)
+vector.corr2 <- colMeans(ANG.INT)[1:7]
+names(vector.corr2) <- NULL
+
+kable(data.frame(PCo = paste("PCo", c(1:7), sep = "."),
+                 prop.changes = vector.corr1,
+                 integ.changes = vector.corr2), digits = 3)
+```
+
+
+
+\pagebreak
+
+
+### 6.4. Check: Does the proportion of the total variance explained by the first eigenvalue account for phenotypic integration?   
+
+```{r, fig.height = 5}
+library(sciplot)
+
+# proportion of the total variance explained by the first eigenvalue
+LEint <- function(x){
+  EI<- eigen(x, symmetric = TRUE)$values
+  return(EI[1]/sum(EI))
+}
+
+# Hansen-Houle integration index 
+HHint <- function(x){
+  k <- nrow(x)
+  a <- numeric(length=k)
+  for(i in 1:k) a[i] <- (solve(x)[i,i]*x[i,i])^(-1)
+  int <- 1 - a
+  return(mean(int))
+}
+
+# Wagner-Cheverud integration index
+WCint <- function(x){
+  EI <- eigen(x, symmetric = TRUE)$values
+  k <- ncol(x)
+  INT <- ((sum((EI - mean(EI))^2)/k))/(k - 1)
+  return(INT)
+}
+
+# base building after simulations
+integ_HH <- numeric(54)
+integ_WC <- numeric(54)
+integ_LE <- numeric(54)
+for(i in 1:54){
+  integ_HH[i] <- HHint(x = Pmat.add2[[i]])
+  integ_WC[i] <- WCint(x = cov2cor(Pmat.add2[[i]]))
+  integ_LE[i] <- LEint(x = Pmat.add2[[i]])
+} 
+dat_integ <- data.frame(type = c(rep("original", 18), rep("0.25", 18), rep("0.85", 18)),
+                        sp = rep(rownames(biommds$coord), 3),
+                        integ_LE, integ_HH, integ_WC)
+
+# plot
+layout(matrix(1:2,1,2))
+lineplot.CI(x.factor = type, response = integ_HH, group = sp, cex = 0.5,
+            data = dat_integ, pch = rep(19, 18), lty = rep(1,18),
+            legend = F, ylab = "Hansen-Houle integration index",
+            xlab = "matrix type")
+lineplot.CI(x.factor = type, response = integ_WC, group = sp, cex = 0.5,
+            data = dat_integ, pch = rep(19, 18), lty = rep(1,18),
+            legend = F, ylab = "Wagner-Cheverud integration index",
+            xlab = "matrix type")
+layout(1)
+
+```
+
+
+
+**Figure 6.** Relationship between the proportion of the total variance explained by the first eigenvalue and phenotypic integration in the original and simulated P-matrices.   
+
+\pagebreak
+
+
+## 7. Bootstrap   
+
+### 7.1. Bootstrap reampling of the original data set.   
+
+```{r}
+# list of bootstraped data frames
+# Boostrap samples were constrained to include at least seven 
+# independent data, because positive-definite 6x6 P matrices 
+# were needed for analysis.
+
+B <- 1000 #number of bootstrap samples
+
+list.boot <- function(x){
+  pse.sal.list <- list(length(x))
+  for(i in 1:length(x)) {
+    pse.sal.list[[i]] <- x[[i]][c(sample(1:nrow(x[[i]]), size = 7, replace = FALSE),
+                                  sample(1:nrow(x[[i]]), size = nrow(x[[i]])-7,
+                                         replace = TRUE)),]
+  }
+  return(pse.sal.list)
+}
+megalist <- replicate(B, list.boot(x = sal.list), simplify = F)
+
+# list of resampled species means
+megabase <- lapply(megalist, FUN = function(x) do.call("rbind", x)) 
+megapops <- lapply(megabase, FUN = function (x) {
+  aggregate(x[, -3], by = list(x$pop), FUN = resum)[, -1]})
+megameans <- lapply(megapops, FUN = function(x) {
+  aggregate(x[, -2], by = list(x$sp), FUN = resum)[, -1]}) # Final base. 
+
+# list of resampled P matrices
+megaPpop <- lapply(megalist, FUN = function(x){
+  lapply(x, FUN = function(y) {
+    Z <- cov(y[, 10:15], use= "pairwise.complete.obs")
+    return(Z)
+  })
+})
+
+N <- numeric(21); for(i in 1:21) N[i] <- nrow(sal.list[[i]])
+
+mergeP <- function(x){
+    list(atro = x[[1]], calo = x[[2]], cinn = x[[3]],
+         cusp = (x[[4]]*N[4]+x[[5]]*N[5])/(N[4]+N[5]), 
+         eleg = (x[[6]]*N[6]+x[[7]]*N[7])/(N[6]+N[7]), 
+         fulg = (x[[8]]*N[8]+x[[9]]*N[9])/(N[8]+N[9]), 
+         guar = x[[10]], ioda = x[[11]], lava = x[[12]],
+         long = x[[13]], mexi = x[[14]], mise = x[[15]],
+         pall = x[[16]], pers = x[[17]], poly = x[[18]],
+         purp = x[[19]], stac = x[[20]], thyr = x[[21]])
+  }
+       
+megaPsp <- lapply(megaPpop, FUN = mergeP) # Final base. 
+rm(megalist, megabase, megapops, megaPpop)
+
+```
+   
+   
+
+\pagebreak
+
+### 7.2. Uncertainty around species means in the original mean trait space (morphospace).        
+   
+```{r}
+library(ggplot2)
+
+# projecting the resampled means into the phylogenetic
+# principal component space
+C <- vcv.phylo(Tsub1)[rownames(sp.means[, 8:13]), rownames(sp.means[, 8:13])]
+temp <- phyl.vcv(as.matrix(sp.means[, 8:13]), C, 1)
+a <- temp$alpha
+A <- matrix(rep(a, 18), 18, 6, byrow = T)
+
+PPC1.b <- lapply(megameans, FUN = function(x){
+  (as.matrix(x[, 8:13]) - A) %*% (-1*phyPC$Evec[,1])
+})
+PPC2.b <- lapply(megameans, FUN = function(x){
+  (as.matrix(x[, 8:13]) - A) %*% (-1*phyPC$Evec[,2])
+})
+
+new.ppc <- data.frame(PC1 = do.call("rbind", PPC1.b)*(-1),
+                      PC2 = do.call("rbind", PPC2.b)*(-1))
+DAT1 <- rbind(phyPC$S[, 1:2], new.ppc)
+DAT1$sp <- rep(rownames(phyPC$S), B+1)
+DAT1$synd <- rep(synd, B+1)
+
+# plot
+g1 <- ggplot(DAT1, aes(x = PC1, y = PC2, color = sp)) + geom_blank()
+g1 <- g1 + scale_color_manual(values = colores) + stat_ellipse()
+g1 <- g1 + geom_point(data = DAT1[1:18,]) 
+g1 <- g1 + geom_text(data = DAT1[1:18, ], aes(x = PC1, y = PC2, label = sp),
+                     hjust = 0, nudge_x = 0.08)
+g1 <- g1 + guides(color = F) + theme_bw() + xlim(-2.5,2)
+g1
+
+```
+
+
+
+**Figure 7.** Mean trait space (morphospace) of *Salvia* corolla traits, showing the first two phylogenetic principal components. Red dots indicate hummingbird-pollinated *Salvia* species, while blue dots correspond to bee-pollinated species. Ellipses indicate 95% confidence intervals, obtained through bootstrap resampling. The first four letters of spacies names are indicated.   
+
+\pagebreak
+
+
+### 7.3. Building a mean trait space (morphospace) in each bootstrap sample.   
+
+```{r}
+# Base of Phylogenetic Principal Components 
+mega.phyPC <- lapply(megameans, FUN = function(x){
+  rownames(x) <- x$sp
+  new.phyPC <- phyl.pca(tree=Tsub1, Y = x[, 8:13])
+  return(new.phyPC)
+})
+
+# Diferences in corolla morphology between pollination syndromes.
+# PERMANOVA between groups
+# Dispersion Test between groups
+per.morpho <- lapply(mega.phyPC, FUN = function(x){
+  x.dist <- dist(x$S)
+  x.perm <- adonis2(x.dist ~ synd, permutations = 999)
+  x.beta <- betadisper(x.dist, group=synd)
+  x.beta2 <- permutest(x.beta, permutations = 999)
+  return(c(F.permanova = x.perm[1, 4],
+           P.permanova = x.perm[1, 5],
+           F.betadisp = x.beta2$tab[1, 4],
+           P.betadisp = x.beta2$tab[1, 6]))
+})
+
+per.morpho.dat <- as.data.frame(do.call("rbind", per.morpho))
+
+# number of significant PERMANOVA results
+sum(per.morpho.dat$P.permanova < 0.05)
+
+# number of significant dispersion test results
+sum(per.morpho.dat$P.betadisp < 0.05)
+
+layout(matrix(1:4, 2, 2))
+hist(per.morpho.dat$F.permanova, main = NULL, 
+     xlab = "F permanova", col = "grey")
+hist(per.morpho.dat$P.permanova, main = NULL, 
+     xlab = "P permanova", col = "grey")
+hist(per.morpho.dat$F.betadisp, main = NULL, 
+     xlab = "F dispersion", col = "grey")
+hist(per.morpho.dat$P.betadisp, main = NULL, 
+     xlab = "P dispersion", col = "grey")
+layout(1)
+
+```
+   
+   
+   
+**Figure 8.** PERMANOVA and Dispersion Test statistics of differences in mean traits between pollination syndromes. Histograms are basen on 1000 bootstrap samples of the original data.
+
+\pagebreak
+
+### 7.4. Uncertainty around P matrices in the original variance-covariance space.       
+   
+```{r fig.height = 8}
+library(gridExtra)
+
+## reprojecting bootstraped P matrices into the original covariance space
+mega.proj <- lapply(megaPsp, FUN = function(x){
+  unc.pmat <- c(salvia_p, x)
+  names(unc.pmat) <- NULL
+  dist.unc.pmat <- as.dist(MatrixDistance(cov.x = unc.pmat, distance = "RiemannDist"))
+  sup.unc <- as.matrix(dist.unc.pmat)[19:36,-c(19:36)]
+  proj.unc <- mmds.project(mmds=biommds, sup = sup.unc, pc = 17)
+  proj.unc
+})
+
+mega.proj.dat <- do.call("rbind", lapply(mega.proj, FUN = function(x){
+                           x$coord[, 1:3]}))
+mega.proj.dat$sp <- rep(names(salvia_p), B)
+DAT2 <- rbind(biommds$coord[, 1:3], mega.proj.dat[,1:3])
+DAT2$sp <- c(rownames(biommds$coord), mega.proj.dat$sp)
+DAT2$synd <- rep(synd, B+1)
+
+# plot confidence ellipses
+g2 <- ggplot(DAT2, aes(x = PC1, y = PC2, color = sp)) + geom_blank()
+g2 <- g2 + scale_color_manual(values = colores) + stat_ellipse()
+g2 <- g2 + geom_point(data = DAT2[1:18,]) 
+g2 <- g2 + geom_text(data = DAT2[1:18, ], aes(x = PC1, y = PC2, label = sp),
+                     hjust = 0, nudge_x = 0.2)
+g2 <- g2 + guides(color = F) + theme_bw() + xlab("PCo1") + ylab("PCo2")
+
+g3 <- ggplot(DAT2, aes(x = PC1, y = PC3, color = sp)) + geom_blank()
+g3 <- g3 + scale_color_manual(values = colores) + stat_ellipse()
+g3 <- g3 + geom_point(data = DAT2[1:18,]) 
+g3 <- g3 + geom_text(data = DAT2[1:18, ], aes(x = PC1, y = PC3, label = sp),
+                     hjust = 0, nudge_x = 0.2)
+g3 <- g3 + guides(color = F) + theme_bw() + xlab("PCo1") + ylab("PCo3")
+
+grid.arrange(g2, g3)
+   
+```
+   
+   
+   
+**Figure 9.** Variance-covariance space of *Salvia* **P**-matrices, showing the first three principal coordinates. Red dots indicate hummingbird-pollinated *Salvia* species, while blue dots correspond to bee-pollinated species. Ellipses indicate 95% confidence intervals, obtained through bootstrap resampling. The first four letters of spacies names are indicated.
+
+\pagebreak
+
+### 7.5. Building a variance-covariance space in each bootstrap sample.    
+
+```{r}
+# Riemanian distances
+mega.rdist <- lapply(megaPsp, FUN = function(x){
+  as.dist(MatrixDistance(cov.x = x, distance = "RiemannDist")) 
+})
+
+# Principal Coordinate Analysis (PCoA)
+mega.pcoa <- lapply(mega.rdist, FUN = function(x){
+  mmds(active = as.matrix(x), pc = 17)
+})
+
+# PERMANOVA & Dispersion
+per.covar <- lapply(mega.rdist, FUN = function(x){
+  x.perm <- adonis2(x ~ synd, permutations = 999)
+  x.beta <- betadisper(x, group=synd)
+  x.beta2 <- permutest(x.beta, permutations = 999)
+  return(c(F.permanova = x.perm[1, 4],
+           P.permanova = x.perm[1, 5],
+           F.betadisp = x.beta2$tab[1, 4],
+           P.betadisp = x.beta2$tab[1, 6]))
+})
+
+per.covar.dat <- as.data.frame(do.call("rbind", per.covar))
+
+# number of significant PERMANOVA results
+sum(per.covar.dat$P.permanova < 0.05)
+
+# number of significant dispersion test results
+sum(per.covar.dat$P.betadisp < 0.05)
+
+layout(matrix(1:4, 2, 2))
+hist(per.covar.dat$F.permanova, main = NULL, 
+     xlab = "F permanova", col = "grey")
+hist(per.covar.dat$P.permanova, main = NULL, 
+     xlab = "P permanova", col = "grey")
+abline(v = 0.05, col = "red")
+hist(per.covar.dat$F.betadisp, main = NULL, 
+     xlab = "F dispersion", col = "grey")
+hist(per.covar.dat$P.betadisp, main = NULL, 
+     xlab = "P dispersion", col = "grey")
+abline(v = 0.05, col = "red")
+layout(1)
+
+```
+
+
+
+**Figure 10.** PERMANOVA and Dispersion Test statistics of differences in covariance structure between pollination syndromes. Histograms are basen on 1000 bootstrap samples of the original data. Red lines indicate P = 0.05.
+
+\pagebreak
+
+### 7.6. Comparison of morphological and variance-covariance spaces in bootstrap samples.   
+
+```{r}
+dist.coph <- cophenetic.phylo(Tsub1)
+mega.compspaces <- list(length = B)
+for(i in 1:B){
+  obs.value <- partial.cor(xdis = as.matrix(mega.rdist[[i]]), 
+                           ydis = as.matrix(dist(mega.phyPC[[i]]$S, upper = T, diag = T)), 
+                           zdis = dist.coph)
+  partial.mantel <- replicate(B, 
+                              partial.cor(xdis = as.matrix(mega.rdist[[i]])[
+                                phyloPermute(phy=Tsub1), phyloPermute(phy=Tsub1)],
+                                ydis = as.matrix(dist(mega.phyPC[[i]]$S, upper = T, diag = T)),
+                                zdis = dist.coph))
+  p.value <- length(partial.mantel[partial.mantel>obs.value])/B
+  mega.compspaces[[i]] <- c(obs.value, p.value)
+}
+mega.compspaces <- do.call("rbind", mega.compspaces)
+
+# 95% confidence interval for partial Mantel correlation (r)
+quantile(mega.compspaces[, 1], probs = c(0.025, 0.975))
+
+# number of significant partial Mantel test results
+sum(mega.compspaces[, 2]<0.05) 
+
+# plot
+layout(matrix(1:2, 1, 2))
+hist(mega.compspaces[, 1], main = NULL, xlab = "r", col = "grey")
+hist(mega.compspaces[, 2], main = NULL, xlab = "P", col = "grey")
+abline(v = 0.05, col = "red")
+layout(1)
+
+```
+
+
+
+**Figure 11.** Partial Mantel test with phylogenetic permutation for the comparison between mean trait space and variance-covariance space. Left: partial correlation value (r) between spaces in 1000 bootstrap samples. Right: Significance after 100 permutations"
+
+\pagebreak
+
+### 7.7. Numerical simulations in each bootstrap sample.   
+
+#### 7.7.1. Average vector correlation between principal coordinates and proportionality changes.   
+
+```{r}
+# Creating new matrices from the original P-matrices.
+matrix.index <- rep(names(salvia_p), 2*B)
+
+mega.prop.mat <- lapply(megaPsp, FUN = function(x){
+  Z <- list(36)
+  for(i in 1:36){
+    Z[[i]] <- prop_matrix(x[[matrix.index[i]]], pc = prop.values[i])
+    names(Z)[i] <- paste(matrix.index[i], prop.values[i], sep = "_")
+  }
+  Pmat.add1 <- c(x, Z) 
+  distances1 <- as.dist(MatrixDistance(cov.x = Pmat.add1, distance = "RiemannDist"))
+  SUP1 <- as.matrix(distances1)[19:54,-c(19:54)]
+  pru1 <- mmds.project(mmds=biommds, sup = SUP1, pc = 17)
+  return(pru1)
+})
+
+# vector correlation. Proportionality simulations
+angles.prop <- list(length = B)
+for(i in 1:B){
+  ori1 <- paste(names(megaPsp[[1]]), 0.5, sep = "_")
+  fin1 <- paste(names(megaPsp[[1]]), 2, sep = "_")
+  ANG1 <- list(18)
+  for(j in 1:18){ 
+    ANG1[[j]] <- angle.calc(from = ori1[j], to=fin1[j], 
+                            coord = mega.prop.mat[[i]]$coord, 
+                            dim = 17)
+  }
+  ANG.PROP <- do.call(rbind, ANG1)
+  vector.corr1 <- colMeans(ANG.PROP)[1:7]
+  vector.angles <- colMeans(ANG.PROP)[18:24]
+  angles.prop[[i]] <- c(vector.corr1, vector.angles)
+}
+angles.prop <- do.call ("rbind", angles.prop)
+
+# Which principal coordinate has higher absolute correlation with the direction of 
+# proportionality changes?
+which.pco.prop <- numeric(B)
+for(i in 1:B){
+which.pco.prop[i] <- as.character(which.max(abs(angles.prop[i, 1:7])))
+}
+table(which.pco.prop)
+
+# plot
+dat.angle1 <- data.frame(PCo = sort(rep(paste("PCo", c(1:7), sep = "."), B)),
+                         corr = c(angles.prop[, 1], angles.prop[, 2], angles.prop[, 3],
+                                  angles.prop[, 4], angles.prop[, 5], angles.prop[, 6],
+                                  angles.prop[, 7]))
+plot(corr~PCo, data = dat.angle1, ylab = "angle correlation", 
+     col = "grey")
+
+```
+
+
+
+**Figure 12.** Correlations between the average vector of proportionality changes and the first seven principal coordinate axes of the variance-covariance space. Vector correlations were obtained in 1000 bootstrap samples.
+
+\pagebreak
+
+#### 7.7.2. Average vector correlation between principal coordinates and integration changes.   
+
+```{r}
+# Creating new matrices from the original P-matrices.
+mega.int.mat <- lapply(megaPsp, FUN = function(x){
+  Z <- list(36)
+  for(i in 1:36){
+    Z[[i]] <- bs_matrix(x[[matrix.index[i]]], prop.var = leading.ei[i])
+    names(Z)[i] <- paste(matrix.index[i], leading.ei[i], sep = "_")
+  }
+  Pmat.add2 <- c(x, Z) 
+  distances2 <- as.dist(MatrixDistance(cov.x = Pmat.add2, distance = "RiemannDist"))
+  SUP2 <- as.matrix(distances2)[19:54,-c(19:54)]
+  pru2 <- mmds.project(mmds=biommds, sup = SUP2, pc = 17)
+  return(pru2)
+})
+
+# vector correlation. Integration simulations.
+angles.int <- list(length = B)
+for(i in 1:B){
+  ori1 <- paste(names(megaPsp[[1]]), 0.25, sep = "_")
+  fin1 <- paste(names(megaPsp[[1]]), 0.85, sep = "_")
+  ANG2 <- list(18)
+  for(j in 1:18){ 
+    ANG2[[j]] <- angle.calc(from = ori1[j], to=fin1[j], 
+                            coord = mega.int.mat[[i]]$coord, 
+                            dim = 17)
+  }
+  ANG.INT <- do.call(rbind, ANG2)
+  vector.corr1 <- colMeans(ANG.INT)[1:7]
+  vector.angles <- colMeans(ANG.INT)[18:24]
+  angles.int[[i]] <- c(vector.corr1, vector.angles)
+}
+angles.int <- do.call("rbind", angles.int)
+
+# Which principal coordinate has higher correlation with the direction of 
+# integration changes?
+which.pco.int <- numeric(B)
+for(i in 1:B){
+which.pco.int[i] <- as.character(which.max(abs(angles.int[i, 1:7])))
+}
+table(which.pco.int)
+
+# plot
+dat.angle2 <- data.frame(PCo = sort(rep(paste("PCo", c(1:7), sep = "."), B)),
+                         corr = c(angles.int[, 1], angles.int[, 2], angles.int[, 3],
+                                  angles.int[, 4], angles.int[, 5], angles.int[, 6],
+                                  angles.int[, 7]))
+plot(corr~PCo, data = dat.angle2, ylab = "angle correlation", 
+     col = "grey")
+
+```
+
+
+
+**Figure 13.** Correlations between the average vector of integration changes and the first seven principal coordinate axes of the variance-covariance space. Vector correlations were obtained in 1000 bootstrap samples.
+
+

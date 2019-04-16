@@ -1,0 +1,57 @@
+FILE DESCRIPTION
+This file contains raw measurements (in mm) from six corolla traits in 18 Salvia species.
+
+COLUMN TITLES
+sp species
+pop population 
+plant individual plant
+flower individual flower
+lll lower lip length (mm)
+llw lower lip width (mm)
+ull upper lip length (mm)
+ulw upper lip width (mm)
+ctl corolla tube length (mm)
+ctw corolla tube width (mm)
+
+SPECIES ABREVIATIONS
+atro Salvia atrocyanea
+calo S. calolophos
+cinn S. cinnabarina
+cusp S. cuspidata subsp. gilliesii
+eleg S. elegans
+fulg S. fulgens
+guar S. coerulea (= S. guaranitica)
+ioda S. iodantha
+lava S. lavanduloides
+long S. longispicata
+mexi S. mexicana
+mise S. misella
+pall S. pallida
+pers S. personata
+poly S. polystachya
+purp S. purpurea
+stac S. stachydifolia
+thyr S. thyrsiflora.
+
+POPULATIONS
+a Argentina 23°37'0"S, 64°55'58"W
+b Argentina 23°55'42"S, 65°28'25"W
+c Mexico 19°34'44"N, 104°15'55"W
+d Argentina 26°44'17"S, 65°45'44"W
+e Mexico 19°15'7"N, 99°14'49"W
+f Mexico 19°15'13"N, 99°16'8"W
+g Argentina 31°13'9"S, 64°19'51"W
+h Mexico 19°35'14"N, 104°15'55"W
+i Mexico 19°35'9"N, 104°15'24"W
+j Mexico 19°35'10"N, 104°16'26"W
+k Mexico 19°35'15"N, 104°16'26"W
+l Mexico 18°57'2"N, 99°30'24"W
+m Argentina 32°6'9"S, 60°38'47"W
+n Argentina 23°55'39"S, 65°28'21"W
+o Mexico 19°2'9.75"N, 99°12'21"W
+p Mexico 19°2'34"N, 100° 2'11"W
+q Argentina 26°47'48"S, 65°43'22"W
+r Mexico 19°35'9"N, 104°16'31"W
+s Mexico 19°18'47"N 99°18'41"W
+t Mexico 19°18'47"N 99°18'41"W
+u Argentina 31º5'26''S, 64º27'34''W

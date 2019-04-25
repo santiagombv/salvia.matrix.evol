@@ -1,2 +1,2 @@
 # salvia.matrix.evol
-Supplementary Material for "Evolutionary transition between bee- and hummingbird-pollination in *Salvia*: comparing means, variances and covariances of corolla traits", by Santiago Benitez-Vieyra, Jessica Pérez-Alquicira, Federico D. Sazatornil, César A. Domínguez, Karina Boege, Rubén Pérez-Ishiwara & Juan Fornoni.
+Supplementary Material for "Evolutionary transition between bee- and hummingbird-pollination in *Salvia*: comparing means, variances and covariances of corolla traits", by Santiago Benitez-Vieyra, Jessica Pérez-Alquicira, Federico D. Sazatornil, César A. Domínguez, Karina Boege, Rubén Pérez-Ishiwara & Juan Fornoni. Journal of Evolutionary Biology https://doi.org/10.1111/jeb.13480
